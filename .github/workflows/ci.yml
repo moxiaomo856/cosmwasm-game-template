@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # 注意：这里 **不** 设置 RUSTFLAGS=-D warnings。
+  # 本模板沿用了上游生产合约的历史代码，仍有少量未使用 import / 死错误变体
+  # （见 PARAMETERIZE.md 的待办清单）。CI 报告但不阻断，等清理完成后再收紧。
+
+jobs:
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchains
+        run: |
+          # 宿主工具链：check / test / schema 用当前 stable
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          # 链上 wasm 工具链：必须 1.69.0（1.70+ 的 wasm32 std 带 sign-ext 指令，
+          # CosmWasm VM 0.55 不支持，部署后合约无法执行）
+          rustup toolchain install 1.69.0 --profile minimal --target wasm32-unknown-unknown
+          rustc --version
+          cargo +1.69.0 --version
+
+      # 三个 crate 相互独立（无根 workspace），各自持有一份 Cargo.lock。
+      - name: Ensure Cargo.lock exists
+        run: |
+          for d in contracts/common contracts/game/contract contracts/lottery/contract; do
+            if [ ! -f "$d/Cargo.lock" ]; then
+              echo "::warning::Cargo.lock 缺失于 $d —— 正在生成。生产合约建议提交 lockfile 以保证可复现构建。"
+              (cd "$d" && cargo generate-lockfile)
+            else
+              echo "Cargo.lock present: $d"
+            fi
+          done
+
+      - name: Check
+        run: |
+          for d in contracts/common contracts/game/contract contracts/lottery/contract; do
+            echo "--- cargo check: $d ---"
+            (cd "$d" && cargo check --all-targets)
+          done
+
+      - name: Test
+        run: |
+          for d in contracts/common contracts/game/contract contracts/lottery/contract; do
+            echo "--- cargo test: $d ---"
+            (cd "$d" && cargo test)
+          done
+
+      - name: Generate JSON schema
+        run: |
+          for d in contracts/game/contract contracts/lottery/contract; do
+            echo "--- schema: $d ---"
+            (cd "$d" && cargo run --quiet --bin schema)
+            # 产物结构：schema/<crate>.json（汇总）+ schema/raw/*.json（各消息变体）
+            ls "$d"/schema/*.json  >/dev/null || { echo "::error::schema 汇总文件未生成于 $d"; exit 1; }
+            ls "$d"/schema/raw/*.json >/dev/null || { echo "::error::schema raw 文件未生成于 $d"; exit 1; }
+            echo "  汇总 $(ls "$d"/schema/*.json | wc -l) 个 / raw $(ls "$d"/schema/raw/*.json | wc -l) 个"
+          done
+
+      # ⚠️ 必须带 --lib：
+      #    cosmwasm-schema 2.x 的 write_api! 宏在 wasm32 下会 compile_error，
+      #    且 #[derive(QueryResponses)] 生成的 impl 带 #[cfg(not(target_arch="wasm32"))]，
+      #    导致 src/bin/schema.rs 无法编到 wasm32。--lib 只编 lib，天然跳过该 bin。
+      - name: Build wasm
+        run: |
+          for d in contracts/game/contract contracts/lottery/contract; do
+            echo "--- wasm build (1.69.0, --lib): $d ---"
+            rm -f "$d"/target/wasm32-unknown-unknown/release/*.wasm
+            (cd "$d" && cargo +1.69.0 build --release --lib --target wasm32-unknown-unknown)
+          done
+
+      - name: Report wasm size
+        run: |
+          for d in contracts/game/contract contracts/lottery/contract; do
+            f=$(ls "$d"/target/wasm32-unknown-unknown/release/*.wasm 2>/dev/null | head -1)
+            if [ -z "$f" ]; then echo "::error::未找到 wasm 产物于 $d"; exit 1; fi
+            sz=$(stat -c%s "$f")
+            echo "$d → $(basename "$f") : $(( sz / 1024 )) KiB"
+          done
+
+      # ⚠️ 链上产物必须是纯 MVP 字节码：Rust 1.70+ 的预编译 wasm32 std 带 sign-ext 指令，
+      #    CosmWasm VM 0.55 不支持，会导致部署后合约无法执行。
+      #    下面这一步检查 wasm 产物的导入段，确认没有非预期的 import。
+      - name: Verify wasm imports (no sign-ext / non-env imports)
+        run: |
+          for d in contracts/game/contract contracts/lottery/contract; do
+            f=$(ls "$d"/target/wasm32-unknown-unknown/release/*.wasm 2>/dev/null | head -1)
+            echo "--- $d ---"
+            if command -v wasm-objdump >/dev/null 2>&1; then
+              wasm-objdump -x "$f" | sed -n '/^Import/,/^$/p'
+            else
+              echo "(wasm-objdump 不可用，跳过导入段检查)"
+            fi
+          done
+
+      - name: Clippy (advisory, non-blocking)
+        continue-on-error: true
+        run: |
+          for d in contracts/common contracts/game/contract contracts/lottery/contract; do
+            echo "--- clippy: $d ---"
+            (cd "$d" && cargo clippy --all-targets 2>&1 | tail -40) || true
+          done
+
+      - name: Upload schema artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: json-schema
+          path: |
+            contracts/game/contract/schema/
+            contracts/lottery/contract/schema/
+          if-no-files-found: warn

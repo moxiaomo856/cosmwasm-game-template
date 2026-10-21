@@ -1,0 +1,15 @@
+[toolchain]
+# ⚠️ 链上 wasm 只接受 Rust 1.69.0 的产物。
+#
+# 原因：CosmWasm VM 0.55 不支持 sign-ext 指令。Rust 1.70+ 官方预编译的
+# wasm32-unknown-unknown 版 std 默认开启 sign-ext，即使设置 RUSTFLAGS 也关不掉
+# （残留指令来自 std 内部，实测 1.74.1 产物仍有 33 处 sign-ext）。
+# 1.69.0 的 std 不带 sign-ext，产出纯 MVP(+mutable-globals) 字节码。
+#
+# 本文件放在仓库根目录，rustup 会从任意子目录向上查找并自动切换工具链。
+# 宿主机的 `cargo test` / `cargo check` 同样使用 1.69.0（本模板所有依赖均已
+# 钉死到 1.69 兼容版本）；若你更习惯用新工具链跑宿主机测试，可显式指定：
+#     cargo +stable test
+channel = "1.69.0"
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"

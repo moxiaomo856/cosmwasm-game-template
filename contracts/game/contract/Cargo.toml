@@ -1,0 +1,92 @@
+[package]
+name = "game-contract"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+# 链上 wasm 只接受旧工具链产物（CosmWasm VM 0.55，不支持 bulk-memory 等后 MVP 特性），
+# 因此统一用 Rust 1.69.0 编译。注意不是 1.74：从 Rust 1.70 起，官方预编译的
+# wasm32-unknown-unknown 版 std 默认开启 sign-ext，即使用 RUSTFLAGS 关掉也无效
+# （残留指令来自 std，实测 1.74.1 产物仍有 33 处 sign-ext 指令）。1.69.0 的 std
+# 不带 sign-ext，才能产出纯 MVP(+mutable-globals) 字节码。
+# 声明 rust-version 后，Cargo 1.84+ 的 MSRV-aware 解析器会自动避开 edition2024 /
+# 需要更新 rustc 的依赖版本（配合 .cargo/config.toml 的
+# resolver.incompatible-rust-versions = "fallback"）。
+rust-version = "1.69"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# 🟢 第十二轮修复（Critical 2）：cosmwasm-std 2.0.4 中 CosmosMsg::Any 由 `cosmwasm_2_0` feature 门控，
+# 仅开 `stargate` 时只有已 deprecated 的 CosmosMsg::Stargate 可用。合约目标链为 CosmWasm 2.0+，
+# 故补开 `cosmwasm_2_0`，使 swap.rs 能使用规范的 CosmosMsg::Any（与 Stargate 行为完全一致，仅名字更规范）。
+cosmwasm-std = { version = "=2.0.4", default-features = false, features = ["iterator", "cosmwasm_2_0"] }
+cosmwasm-schema = "=2.0.4"
+# 🟢 审计修复：Cargo.lock 里原本解析出 cosmwasm-crypto 2.3.4，与 cosmwasm-std 2.0.4 不同代。
+# cosmwasm-std 2.0.4 只依赖 cosmwasm-crypto ^2.0，锁里却拉到了 2.3.4（会带进 edition2024
+# 的间接依赖，在 Cargo 1.74 上直接编不过）。这里显式锁到 2.0.4，与 std 完全对齐。
+# 已确认 Cargo.lock 中只有 cosmwasm-std 一个包依赖 cosmwasm-crypto，降版无冲突。
+cosmwasm-crypto = "=2.0.4"
+# 🟢 审计修复：与 cosmwasm-crypto 同理，Cargo.lock 里原本解析出 cosmwasm-derive 2.3.4，
+# 与 cosmwasm-std 2.0.4 不同代，会让 #[cw_serde] 宏展开的代码与 std 2.0.4 的 API
+# 不匹配（可能编译失败或运行期行为不一致）。显式锁到 2.0.4 与 std 完全对齐。
+cosmwasm-derive = "=2.0.4"
+cw-storage-plus = "=2.0.0"
+cw2 = "=2.0.0"
+# 🟢 H1 审计修复（2026-10-10）：非 cosmwasm 依赖全部钉死到 Rust 1.69 兼容版本。
+#    此前 serde/schemars/thiserror 是范围约束，Cargo.lock 里解析出 serde 1.0.229 →
+#    syn 3.0.5（MSRV 远高于 1.69），一旦 cargo update 或 CI 重解析就会构建失败。
+#    现在与 cosmwasm 系一样用精确版本（=），锁文件重建后 syn 停在 2.x 兼容线。
+schemars = "=0.8.16"
+serde = { version = "=1.0.188", default-features = false, features = ["derive"] }
+thiserror = { version = "=1.0.49", default-features = false }  # cw2 2.0.0 要求 ^1.0.49，1.0.49 为其下限且 MSRV 兼容 1.69
+# 🟢 全盘审计修复：base64 在 src/ 下零引用（helpers.rs 注释自认已删函数），已移除。
+# 🟢 2026-10-21 公开模板化：hex 原仅用于无感签名（secp256k1 签名/公钥的 hex 编解码），
+#    随 session 模块移除后 src/ 下零引用，一并移除。
+serde_json = "=1.0.107"
+sha2 = "=0.10.8"
+# 🟢 2026-10-21 公开模板化：bech32 / ripemd 原本服务于无感签名的
+#    「secp256k1 公钥 → Paxi bech32 地址」推导（register_session），
+#    随 session 模块整体移除后 src/ 下零引用，已移除。
+wasm-bindgen = "=0.2.92"
+proc-macro2 = "=1.0.86"
+quote       = "=1.0.37"
+# 🔴 2026-10-12: Rust 1.69 不支持 edition 2024，以下间接依赖钉死旧版
+hashbrown   = "=0.14.5"
+syn         = "=2.0.87"
+base64ct = "=1.6.0"
+zeroize   = "=1.7.0"
+
+# 🟢 审计修复：以下 5 个依赖在 src/ 下零引用（rmp / rmp-serde / zeroize /
+# zeroize_derive / derive_more），已被移除。它们当初是为了压住 edition2024
+# 的间接依赖而钉的，现在改由上面的 cosmwasm-crypto = "=2.0.4" 精确锁定解决根因，
+# 不再需要这些占体积的旁门左道。
+# 注：schemars 虽无直接 use，但 `#[cw_serde]`（cosmwasm-schema）展开后需要它在
+# 作用域内，保留。
+
+# wasm32 下 getrandom 0.2 不开 js feature 会直接 compile_error。
+# 依赖链：cosmwasm-crypto(验签) → rand_core → getrandom，无法移除。
+# 合约不使用 OS 随机（随机性来自链上数据/env.block），该路径不会被调用，
+# 经 LTO 死代码消除后不会进入最终产物（用 scripts/check_wasm_features.py 的
+# Import Section 检查可确认产物里没有 wasm-bindgen 的非 env 导入）。
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "=0.2.17", features = ["js"] }
+
+[features]
+default = ["library"]
+library = []
+
+# 生成 CosmWasm JSON Schema（前端 / 索引器消费）
+[[bin]]
+name = "schema"
+path = "src/bin/schema.rs"
+required-features = ["library"]
+
+[profile.release]
+# 🟢 体积说明（2026-10-10）：源码注释不进 wasm 产物（编译期即被剥离），
+#    删注释不减体积。真正决定体积的是下面这些 profile 项：
+opt-level = "z"        # 极限优化体积（比 "s" 更小，合约对速度不敏感）
+lto = "fat"           # 链接时优化，去除死代码
+codegen-units = 1      # 单线程编译，启用更多优化
+panic = "abort"        # 使用 abort 而非 unwinding，减小体积
+strip = true            # 去除符号与调试信息，减小体积（wasm 无需符号表；CosmWasm VM 不依赖符号）

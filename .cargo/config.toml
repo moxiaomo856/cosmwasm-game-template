@@ -1,0 +1,17 @@
+# ---- Cargo 解析行为 ----
+# 1) MSRV-aware 解析：需要 cargo 1.84+。作用是当依赖声明的 rust-version
+#    高于本 crate 的 rust-version = "1.69" 时，自动挑一个兼容旧 rustc 的版本，
+#    而不是拉最新的（最新版常带 edition2024，Rust 1.69 编不过）。
+#    cargo < 1.84 会忽略这个键（只打印一条 warning），不影响构建结果，
+#    因为本模板所有关键依赖都已用 `=` 精确钉死，MSRV 解析只是双保险。
+#
+# 2) 链上 wasm 只能用 Rust 1.69.0 产出：从 1.70 起官方预编译的
+#    wasm32-unknown-unknown 版 std 默认带 sign-ext 指令，CosmWasm VM 0.55
+#    不支持该指令集，部署后合约会直接无法执行。RUSTFLAGS 关不掉
+#    （指令来自 std 本身）。故 wasm 构建统一 `cargo +1.69.0`。
+#
+#    注意：宿主机的 check / test / schema 用较新稳定版工具链即可
+#    （见 scripts/verify-build.sh 第 3 节的工具链自动探测）。
+
+[resolver]
+incompatible-rust-versions = "fallback"

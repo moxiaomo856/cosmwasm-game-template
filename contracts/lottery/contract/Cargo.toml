@@ -1,0 +1,81 @@
+[package]
+name        = "paxi-lottery-contract-simple"
+description = "Paxi lottery contract: tiered player pools + platform template pools, create/join/draw/claim/refund - commit-reveal randomness, optional external PRC-20 dependency"
+version     = "0.2.0"
+edition     = "2021"
+license     = "Apache-2.0"
+# 链上 wasm 必须用 Rust 1.69.0 编译（wasm32 std 的 sign-ext 问题，
+# CosmWasm VM 0.55 不支持该指令集）。仓库根目录的 rust-toolchain.toml 已钉死该版本，
+# rustup 会自动切换；本机 cargo test（host 目标）用 1.74.1 也没问题。
+rust-version = "1.69"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# 本目录是从上游 Paxi social & lottery workspace 的 `paxi-lottery-contract-v2`
+# 复制出来的独立副本：
+#   * 依赖已从 workspace 继承展开为具体版本（与上游 [workspace.dependencies] 逐项对齐）；
+#   * `paxi-common` 原本用相对路径指向仓外的原工作区包，复制到模板后层级对不上，
+#     会导致 "failed to load manifest for dependency paxi-common: path not found" 编译失败。
+#     现已改为指向随模板一起 vendor 的自包含副本（`../../common`，即 contracts/common/），
+#     使模板可独立克隆、编译、发布。
+#
+# 路径基准（勿随意改动）：
+#   本文件所在目录  contracts/lottery/contract/
+#   ../../  =>  contracts/
+#   因此 paxi-common 位于 contracts/common/
+#   现已改为随模板 vendor 的自包含副本，使模板可独立克隆、编译、发布。
+[dependencies]
+cosmwasm-std     = { version = "=2.0.4", features = ["staking", "stargate", "cosmwasm_2_0"] }
+cosmwasm-schema  = { version = "=2.0.4" }
+# 🟢 cosmwasm-crypto / cosmwasm-derive / schemars 虽在 src/ 下无直接 use，
+#    但它们是**防版本漂移的精确钉死项**：cosmwasm-std 2.0.4 只依赖 cosmwasm-crypto ^2.0，
+#    放任 cargo 解析会拉到 2.3.x（带 edition2024 间接依赖），Rust 1.69 工具链编不过。
+#    `#[cw_serde]` 展开后也需要 schemars 在作用域内。切勿升级或删除。
+cosmwasm-crypto  = { version = "=2.0.4" }
+cosmwasm-derive  = { version = "=2.0.4" }
+cw-storage-plus  = { version = "=2.0.0" }
+cw2              = { version = "=2.0.0" }
+# 🟢 精确钉死（与 contracts/game/contract、contracts/common 完全一致）：
+#    版本区间会让 cargo 在不同工具链下解析出不同结果 —— stable 会解析出
+#    serde 1.0.2xx → syn 3.x（MSRV 远高于 1.69），Rust 1.69 直接编不过。
+#    精确钉死后，任何工具链解析出的依赖图完全相同，lockfile 也才真正可复现。
+schemars         = { version = "=0.8.16" }
+serde            = { version = "=1.0.188", default-features = false, features = ["derive"] }
+thiserror        = { version = "=1.0.49", default-features = false }
+sha2             = { version = "=0.10.8", default-features = false }
+hex              = { version = "=0.4.3", default-features = false }
+# 🟢 间接依赖精确钉死（Rust 1.69 兼容线），防止漂到 edition2024
+proc-macro2      = { version = "=1.0.86" }
+quote            = { version = "=1.0.37" }
+syn              = { version = "=2.0.87" }
+hashbrown        = { version = "=0.14.5" }
+base64ct         = { version = "=1.6.0" }
+zeroize          = { version = "=1.7.0" }
+paxi-common      = { path = "../../common" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom        = { version = "=0.2.17", features = ["js"] }
+
+# 🟢 2026-10-21 公开模板化：原 [dev-dependencies] 的 k256（生成 secp256k1 无感签名）、
+#    cw-multi-test、anyhow 随 session 模块移除后 src/ 下全部零引用，已整体删除。
+#    单元测试改用 cosmwasm_std::testing（mock_env / MockStorage / MockQuerier），
+#    不需要额外的多合约模拟器。
+
+[features]
+default = ["library"]
+library = []
+
+[[bin]]
+name = "schema"
+path = "src/bin/schema.rs"
+required-features = ["library"]
+
+[profile.release]
+opt-level        = "s"      # 优化体积
+lto              = "fat"    # 链接时优化，剔除死代码
+codegen-units    = 1
+panic            = "abort"
+strip            = true
+overflow-checks  = true
+incremental      = false

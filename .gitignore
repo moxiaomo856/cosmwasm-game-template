@@ -1,0 +1,34 @@
+# ---- Rust / CosmWasm ----
+target/
+**/*.wasm
+**/*.wasm.gz
+schema/
+
+# ⚠️ Cargo.lock 故意 **不** 忽略，需要提交。
+#   本模板大量依赖使用精确版本钉死（cosmwasm-std =2.0.4、cw-storage-plus =2.0.0 …），
+#   目的是防止 cargo 在解析时漂移到 edition2024 的间接依赖（Rust 1.69 编不过）。
+#   但精确钉死只有在 Cargo.lock 一起提交时才有意义——否则一次 `cargo update`
+#   就能把可复现的构建变成不可复现的。
+#   若你新建了自己的分支并改动依赖，请连同 Cargo.lock 一起提交。
+#
+# 如果你希望改成「库式」策略（不提交 lock），删掉下面一行即可，
+# 但请在 PR 里说明理由。
+
+# ---- 前端 ----
+node_modules/
+frontend-demo/dist/
+frontend-demo/.vite/
+*.tsbuildinfo
+
+# ---- 编辑器 / 系统 ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# ---- 本地环境 ----
+.env
+.env.local
+*.local

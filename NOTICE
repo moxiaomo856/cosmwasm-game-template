@@ -1,0 +1,64 @@
+paxi-cosmwasm-game-template
+Copyright (c) 2026 Paxi Game & Lottery Template Contributors
+
+This repository is a dual-licensed open-source template. Please read this file
+before redistributing any part of it.
+
+================================================================================
+LICENSE STRUCTURE
+================================================================================
+
+The root LICENSE is the MIT License. It covers the parts of this repository
+that are original work of the template authors:
+
+  * contracts/game/         — the card-game contract and its tooling
+  * docs/                   — documentation, integration guide, FAQ, architecture
+  * frontend-demo/          — the reference front-end demo
+  * scripts/                — deploy / testnet helper scripts
+  * CI configuration, templates and repository-level metadata
+
+Two directories are NOT covered by the root MIT License. They contain code
+derived from the Paxi contracts workspace
+(https://github.com/paxi-web3/paxi), which is licensed under
+the Apache License, Version 2.0. Each of those directories carries its own
+LICENSE (Apache-2.0) and NOTICE file listing the modifications made:
+
+  * contracts/common/       — vendored `paxi-common` shared crate
+                              (LICENSE: Apache-2.0, NOTICE: contracts/common/NOTICE)
+  * contracts/lottery/      — the lottery contract, derived from the upstream
+                              `paxi-lottery-contract-v2`
+                              (LICENSE: Apache-2.0, NOTICE: contracts/lottery/NOTICE)
+
+Apache-2.0 code may not be redistributed under the MIT License alone. If you
+redistribute this repository as a whole, you must keep the Apache-2.0 LICENSE
+and NOTICE files for those two directories intact.
+
+================================================================================
+NOTE ON THE PROPOSAL TEXT
+================================================================================
+
+The DAO proposal that funded this template described the repository as "MIT".
+The actual licensing is the structure above: MIT for original work, Apache-2.0
+for the two directories derived from upstream Apache-2.0 sources. The deviation
+is intentional and is disclosed rather than silently relabelled, because
+relabelling Apache-2.0 code as MIT would be a licence violation.
+
+================================================================================
+NOTE ON THE INVISIBLE-UX MODULE
+================================================================================
+
+The upstream sources contain an invisible-UX (session-key) authentication
+module. This public template deliberately does NOT ship that implementation;
+player-facing actions are authenticated by the transaction sender. See
+docs/invisible-ux-boundaries.md for the rationale, what exactly is and is not
+included, and how to plug in an alternative authentication strategy.
+
+================================================================================
+NOTE ON THE UPSTREAM SOURCE
+================================================================================
+
+The Apache-2.0 directories in this repository are derived from the Paxi
+contracts workspace at https://github.com/paxi-web3/paxi. The proposer also
+maintains a personal development fork of that upstream at
+https://github.com/moxiaomo856/paxi; the extracted code here comes from the
+upstream, not from any modifications in the fork.

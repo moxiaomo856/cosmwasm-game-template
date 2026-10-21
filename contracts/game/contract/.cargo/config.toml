@@ -1,0 +1,6 @@
+# MSRV 解析配置：当间接依赖（transitive）声明了高于本项目 MSRV（Rust 1.69）的
+# rust-version 时，Cargo 1.84+ 的 MSRV-aware 解析器会「回退」到兼容 1.69 的版本，
+# 而不是直接拉到需要更高 rustc 的版本导致构建失败。
+# 注意：本文件必须随仓库提交，否则在无 Cargo.lock 的环境首次构建会漂移。
+[resolver]
+incompatible-rust-versions = "fallback"

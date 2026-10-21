@@ -1,0 +1,61 @@
+[package]
+name        = "paxi-common"
+description = "Shared modules (TKCC/PRC-20 integration, internal balance ledger, commit-reveal random source, admin whitelist) for the Paxi game & lottery contracts"
+version     = "0.1.0"
+edition     = "2021"
+license     = "Apache-2.0"
+rust-version = "1.69"
+repository  = "https://github.com/paxi-web3/paxi-social-lottery"
+
+# 本目录是从上游 Paxi social & lottery workspace 的 `packages/paxi-common`
+# vendor 进来的独立副本：
+#   变更：①原 `{ workspace = true }` 继承全部展开为上游工作区的精确锁定版本；
+#        ②移除了 `src/session.rs`（无感签名模块）——按公开模板的边界要求，
+#          无感实现不对外提供；详见本目录 NOTICE。
+#        ③`src/lib.rs` 相应去掉了 `pub mod session;` 与 `pub use session::{...}`。
+# 许可证：Apache-2.0（与上游一致），详见 ./LICENSE 与 ./NOTICE。
+
+[dependencies]
+cosmwasm-std      = { version = "=2.0.4", features = ["staking", "stargate", "cosmwasm_2_0"] }
+cosmwasm-schema   = { version = "=2.0.4" }
+# 🟢 防版本漂移的精确钉死项（与 contracts/game/contract 完全一致）：
+#    cosmwasm-std 2.0.4 只依赖 cosmwasm-crypto ^2.0 / cosmwasm-derive ^2.0，
+#    放任解析会拉到 2.3.x（带 edition2024 间接依赖，Rust 1.69 编不过）。
+#    `#[cw_serde]` 展开后也需要 schemars 在作用域内。
+cosmwasm-crypto   = { version = "=2.0.4" }
+cosmwasm-derive   = { version = "=2.0.4" }
+cw-storage-plus   = { version = "=2.0.0" }
+cw2               = { version = "=2.0.0" }
+# 🟢 serde / schemars / thiserror / syn 等非 cosmwasm 依赖同样精确钉死：
+#    版本区间会让 cargo 在不同工具链下解析出不同结果（stable 解析出
+#    serde 1.0.2xx → syn 3.x，MSRV 远高于 1.69，直接编不过）。
+#    精确钉死 = 无论用哪个 cargo 解析，结果完全一致。
+serde             = { version = "=1.0.188", default-features = false, features = ["derive"] }
+schemars          = { version = "=0.8.16" }
+thiserror         = { version = "=1.0.49", default-features = false }
+sha2              = { version = "=0.10.8", default-features = false }
+# 🟢 2026-10-21 公开模板化：base64 / hex / ripemd / bech32 / serde_json 在 src/ 下
+#    **零引用**（随 session 模块整体移除后失效），已从依赖中删除。
+#    少一批依赖 = 少一批版本漂移风险，lockfile 更小、构建更快。
+# 🟢 间接依赖精确钉死（Rust 1.69 兼容线），防止漂到 edition2024
+proc-macro2       = { version = "=1.0.86" }
+quote             = { version = "=1.0.37" }
+syn               = { version = "=2.0.87" }
+hashbrown         = { version = "=0.14.5" }
+base64ct          = { version = "=1.6.0" }
+zeroize           = { version = "=1.7.0" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# wasm32 下 getrandom 0.2 不开 js feature 会直接 compile_error。
+# 依赖链：cosmwasm-crypto(验签) -> rand_core -> getrandom。
+# 合约不使用 OS 随机（随机性来自链上数据），经 LTO 死代码消除后不进最终产物。
+getrandom = { version = "=0.2.17", features = ["js"] }
+
+[profile.release]
+opt-level        = "s"
+lto              = "fat"
+codegen-units    = 1
+panic            = "abort"
+strip            = true
+overflow-checks  = true
+incremental      = false
